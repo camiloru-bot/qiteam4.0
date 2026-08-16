@@ -1,0 +1,2388 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import io
+import json
+import os
+
+# ============================================================
+# QI TEAM
+# VERSIÓN: 3.9 CORREGIDA
+# NOMBRE: CATÁLOGO MAESTRO — ENTRENADOR DECIDE
+# PRINCIPIO: SISTEMA RECOMIENDA → ENTRENADOR DECIDE → SISTEMA
+#           PUEDE VOLVER A SUGERIR → DECISIÓN QUEDA REGISTRADA
+# ============================================================
+
+VERSION_APP = "V4.0"
+NOMBRE_VERSION = "CATÁLOGO MAESTRO — V4.0 — MOTOR ESTRUCTURAL FUERTE + ENTRENADOR DECIDE"
+DB_FILE = "atletas_db.json"
+
+st.set_page_config(
+    page_title=f"Qi Team {VERSION_APP}",
+    page_icon="🏃‍♂️",
+    layout="wide"
+)
+
+# ============================================================
+# PERSISTENCIA
+# ============================================================
+
+def convertir_fechas_para_json(db):
+    db_serializable = {}
+    for nombre, datos in db.items():
+        datos_copia = datos.copy()
+        if isinstance(datos_copia.get("fecha_objetivo"), datetime):
+            datos_copia["fecha_objetivo"] = datos_copia["fecha_objetivo"].strftime("%Y-%m-%d")
+        db_serializable[nombre] = datos_copia
+    return db_serializable
+
+
+def cargar_db():
+    defaults = {
+        "Deportista Principal": {
+            "genero": "Masculino",
+            "nivel": "Medio",
+            "meta": "10K",
+            "fecha_objetivo": datetime(2026, 10, 15),
+            "fase_ciclo": "N/A",
+            "csv_data_historico": None,
+            "archivos_cargados": [],
+            "decisiones_entrenador": [],
+            "decisiones_sesiones": {}
+        },
+        "Atleta Femenina Ejemplo": {
+            "genero": "Femenino",
+            "nivel": "Principiante",
+            "meta": "5K",
+            "fecha_objetivo": datetime(2026, 9, 20),
+            "fase_ciclo": "Fase Folicular / Normal",
+            "csv_data_historico": None,
+            "archivos_cargados": [],
+            "decisiones_entrenador": [],
+            "decisiones_sesiones": {}
+        }
+    }
+
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                db_cruda = json.load(f)
+
+            for nombre, datos in db_cruda.items():
+                if isinstance(datos.get("fecha_objetivo"), str):
+                    datos["fecha_objetivo"] = datetime.strptime(
+                        datos["fecha_objetivo"], "%Y-%m-%d"
+                    )
+                datos.setdefault("csv_data_historico", None)
+                datos.setdefault("archivos_cargados", [])
+                datos.setdefault("decisiones_entrenador", [])
+                datos.setdefault("decisiones_sesiones", {})
+                defaults[nombre] = datos
+        except Exception as e:
+            st.warning(f"No se pudo leer la base existente: {e}")
+
+    return defaults
+
+
+def guardar_db(db):
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(
+                convertir_fechas_para_json(db),
+                f,
+                ensure_ascii=False,
+                indent=4
+            )
+    except Exception as e:
+        st.error(f"Error al guardar la base de datos: {e}")
+
+
+if "atletas_db" not in st.session_state:
+    st.session_state["atletas_db"] = cargar_db()
+
+# ============================================================
+# CATÁLOGO MAESTRO
+# ============================================================
+
+CATALOGO_MAESTRO = [
+    {
+        "ID": "INT-001", "Categoría": "Qi Intervalos",
+        "Título": "8x 3:30 / 1' Recuperación",
+        "Objetivo": "VO2Max", "Nivel": "Medio",
+        "Meta": ["5K", "10K", "Media Maratón"],
+        "Duración (h)": 0.78, "TSS": 70.6,
+        "Intensidad": "Alto (Z4-Z5)", "Fase": "Desarrollo",
+        "Día Preferente": "Martes",
+        "Estructura TP": """• Calentamiento: 15 min | Z1-Z2
+• 8 repeticiones:
+  - 3:30 min | Z4-Z5
+  - 1 min | Z1 recuperación
+• Enfriamiento: 10 min | Z1""",
+        "Etiquetas": "VO2Max, intervalos, velocidad"
+    },
+    {
+        "ID": "INT-002", "Categoría": "Qi Intervalos",
+        "Título": "5x 800m / 90'' Recuperación",
+        "Objetivo": "Ritmo específico / VO2Max", "Nivel": "Medio",
+        "Meta": ["5K", "10K"],
+        "Duración (h)": 0.75, "TSS": 78.0,
+        "Intensidad": "Alto (Z4-Z5)", "Fase": "Específica",
+        "Día Preferente": "Martes",
+        "Estructura TP": """• Calentamiento: 15 min | Z1-Z2
+• 5 x 800m | Z4-Z5
+• Recuperación: 90 seg | Z1
+• Enfriamiento: 10 min | Z1""",
+        "Etiquetas": "800m, ritmo, específico"
+    },
+    {
+        "ID": "INT-004", "Categoría": "Qi Intervalos",
+        "Título": "6x 4' / 2' Recuperación",
+        "Objetivo": "Umbral / VO2Max", "Nivel": "Medio",
+        "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 0.85, "TSS": 82.0,
+        "Intensidad": "Alto (Z4)", "Fase": "Desarrollo",
+        "Día Preferente": "Martes",
+        "Estructura TP": """• Calentamiento: 15 min | Z1-Z2
+• 6 x 4 min | Z4
+• Recuperación: 2 min | Z1-Z2
+• Enfriamiento: 10 min | Z1""",
+        "Etiquetas": "intervalos, umbral, media maratón, alternativa"
+    },
+    {
+        "ID": "INT-003", "Categoría": "Qi Intervalos",
+        "Título": "6x 1000m / 90'' Recuperación",
+        "Objetivo": "Ritmo específico", "Nivel": "Experto",
+        "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 0.95, "TSS": 105.0,
+        "Intensidad": "Alto (Z4-Z5)", "Fase": "Específica",
+        "Día Preferente": "Martes",
+        "Estructura TP": """• Calentamiento: 15 min | Z1-Z2
+• 6 x 1000m | Z4-Z5 / ritmo específico
+• Recuperación: 90 seg | Z1
+• Enfriamiento: 15 min | Z1""",
+        "Etiquetas": "1000m, específico, resistencia"
+    },
+    {
+        "ID": "TMP-001", "Categoría": "Qi Tempo",
+        "Título": "3x 9' Tempo Progresivo",
+        "Objetivo": "Umbral / Sostenido", "Nivel": "Medio",
+        "Meta": ["5K", "10K", "Media Maratón"],
+        "Duración (h)": 0.75, "TSS": 73.7,
+        "Intensidad": "Sostenido (Z3-Z4)", "Fase": "Desarrollo",
+        "Día Preferente": "Jueves",
+        "Estructura TP": """• Calentamiento: 15 min | Z1-Z2
+• 3 x 9 min | Z3-Z4 progresivo
+• Recuperación: 2 min | Z1
+• Enfriamiento: 10 min | Z1""",
+        "Etiquetas": "tempo, umbral, progresivo"
+    },
+    {
+        "ID": "TMP-002", "Categoría": "Qi Tempo",
+        "Título": "30' Tempo Sostenido",
+        "Objetivo": "Umbral / Sostenido", "Nivel": "Medio",
+        "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 0.80, "TSS": 85.0,
+        "Intensidad": "Sostenido (Z3-Z4)", "Fase": "Específica",
+        "Día Preferente": "Jueves",
+        "Estructura TP": """• Calentamiento: 15 min | Z1-Z2
+• 30 min continuos | Z3-Z4
+• Enfriamiento: 10 min | Z1""",
+        "Etiquetas": "tempo, umbral, continuo"
+    },
+    {
+        "ID": "TMP-003", "Categoría": "Qi Tempo",
+        "Título": "40' Tempo Base",
+        "Objetivo": "Resistencia aeróbica / Umbral", "Nivel": "Experto",
+        "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 1.00, "TSS": 105.0,
+        "Intensidad": "Sostenido (Z3)", "Fase": "Desarrollo",
+        "Día Preferente": "Jueves",
+        "Estructura TP": """• Calentamiento: 15 min | Z1-Z2
+• 40 min | Z3 continuo
+• Enfriamiento: 15 min | Z1""",
+        "Etiquetas": "tempo, aeróbico, resistencia"
+    },
+    {
+        "ID": "FAR-001", "Categoría": "Qi Fartlek",
+        "Título": "Fartlek Sueco 1' x 1' / 20'",
+        "Objetivo": "Variabilidad de ritmo", "Nivel": "Principiante",
+        "Meta": ["5K", "10K"],
+        "Duración (h)": 0.60, "TSS": 55.0,
+        "Intensidad": "Variable (Z2-Z4)", "Fase": "Base",
+        "Día Preferente": "Jueves",
+        "Estructura TP": """• Calentamiento: 10 min | Z1-Z2
+• 20 min alternando:
+  - 1 min alegre | Z3-Z4
+  - 1 min suave | Z1-Z2
+• Enfriamiento: 10 min | Z1""",
+        "Etiquetas": "fartlek, variabilidad, principiante"
+    },
+    {
+        "ID": "FAR-002", "Categoría": "Qi Fartlek",
+        "Título": "Fartlek de Ritmos Mixtos",
+        "Objetivo": "Cambios de ritmo", "Nivel": "Medio",
+        "Meta": ["5K", "10K", "Media Maratón"],
+        "Duración (h)": 0.75, "TSS": 75.0,
+        "Intensidad": "Variable (Z2-Z4)", "Fase": "Desarrollo",
+        "Día Preferente": "Sábado",
+        "Estructura TP": """• Calentamiento: 15 min | Z1-Z2
+• Bloque Fartlek Z2-Z4
+• Cambios de ritmo controlados
+• Enfriamiento: 10 min | Z1""",
+        "Etiquetas": "fartlek, mixto, sábado"
+    },
+    {
+        "ID": "FAR-003", "Categoría": "Qi Fartlek",
+        "Título": "Fartlek Avanzado de Velocidad",
+        "Objetivo": "Velocidad / VO2Max", "Nivel": "Experto",
+        "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 0.90, "TSS": 92.0,
+        "Intensidad": "Alto (Z4-Z5)", "Fase": "Desarrollo",
+        "Día Preferente": "Miércoles",
+        "Estructura TP": """• Calentamiento: 15 min | Z1-Z2
+• Fartlek estructurado Z4-Z5
+• Recuperaciones activas en Z1-Z2
+• Enfriamiento: 15 min | Z1""",
+        "Etiquetas": "fartlek, velocidad, avanzado"
+    },
+    {
+        "ID": "LNG-001", "Categoría": "Qi Long Run",
+        "Título": "Long Run Aeróbico",
+        "Objetivo": "Base aeróbica", "Nivel": "Principiante",
+        "Meta": ["5K", "10K", "Media Maratón"],
+        "Duración (h)": 0.75, "TSS": 55.0,
+        "Intensidad": "Base (Z1-Z2)", "Fase": "Base",
+        "Día Preferente": "Domingo",
+        "Estructura TP": """• Bloque único: 50 min | Z1-Z2
+• Mantener esfuerzo conversacional
+• Sin progresión obligatoria""",
+        "Etiquetas": "fondo, base, aeróbico"
+    },
+    {
+        "ID": "LNG-002", "Categoría": "Qi Long Run",
+        "Título": "Long Run Aeróbico 90'",
+        "Objetivo": "Resistencia aeróbica", "Nivel": "Medio",
+        "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 1.50, "TSS": 115.0,
+        "Intensidad": "Base (Z1-Z2)", "Fase": "Desarrollo",
+        "Día Preferente": "Domingo",
+        "Estructura TP": """• Bloque único: 1h 30 min | Z1-Z2
+• Ritmo aeróbico controlado""",
+        "Etiquetas": "fondo, resistencia, aeróbico"
+    },
+    {
+        "ID": "LNG-003", "Categoría": "Qi Long Run",
+        "Título": "Long Run Aeróbico + Últimos 5K Progresivos",
+        "Objetivo": "Resistencia específica", "Nivel": "Experto",
+        "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 1.80, "TSS": 135.0,
+        "Intensidad": "Base (Z1-Z3)", "Fase": "Específica",
+        "Día Preferente": "Domingo",
+        "Estructura TP": """• Bloque aeróbico inicial | Z1-Z2
+• Últimos 5 km progresivos | Z2-Z3
+• Final controlado, sin llegar a esfuerzo máximo""",
+        "Etiquetas": "fondo, específico, progresivo, maratón"
+    },
+    {
+        "ID": "LNG-004", "Categoría": "Qi Long Run",
+        "Título": "Long Run Avanzado con Bloques Específicos",
+        "Objetivo": "Resistencia específica de competencia", "Nivel": "Experto",
+        "Meta": ["Maratón"],
+        "Duración (h)": 2.00, "TSS": 160.0,
+        "Intensidad": "Z1-Z3", "Fase": "Específica",
+        "Día Preferente": "Domingo",
+        "Estructura TP": """• 2h totales
+• Base aeróbica Z1-Z2
+• Bloques específicos integrados según objetivo
+• Control estricto de fatiga""",
+        "Etiquetas": "fondo, maratón, específico, avanzado"
+    },
+    # Extensión V3.3: alternativa de Long Run para permitir una
+    # nueva sugerencia cuando el entrenador pide más volumen.
+    {
+        "ID": "LNG-005", "Categoría": "Qi Long Run",
+        "Título": "Long Run Aeróbico 105'",
+        "Objetivo": "Resistencia aeróbica / incremento de volumen", "Nivel": "Medio",
+        "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 1.75, "TSS": 130.0,
+        "Intensidad": "Base (Z1-Z2)", "Fase": "Desarrollo",
+        "Día Preferente": "Domingo",
+        "Estructura TP": """• Bloque único: 1h 45 min | Z1-Z2
+• Ritmo aeróbico controlado
+• Prioridad: incremento progresivo del volumen""",
+        "Etiquetas": "fondo, volumen, resistencia, aeróbico"
+    },
+    {
+        "ID": "REC-001", "Categoría": "Recuperación",
+        "Título": "Trote Regenerativo 35'",
+        "Objetivo": "Recuperación", "Nivel": "Principiante",
+        "Meta": ["5K", "10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 0.58, "TSS": 30.0,
+        "Intensidad": "Muy bajo (Z1)", "Fase": "Recuperación",
+        "Día Preferente": "Martes",
+        "Estructura TP": """• 35 min | Z1 estricto
+• Sensación cómoda
+• Sin progresivos ni bloques intensos""",
+        "Etiquetas": "recuperación, regenerativo"
+    },
+    {
+        "ID": "REC-002", "Categoría": "Recuperación",
+        "Título": "Trote Regenerativo 50'",
+        "Objetivo": "Recuperación", "Nivel": "Experto",
+        "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 0.83, "TSS": 45.0,
+        "Intensidad": "Muy bajo (Z1)", "Fase": "Recuperación",
+        "Día Preferente": "Jueves",
+        "Estructura TP": """• 50 min | Z1
+• Mantener esfuerzo muy cómodo
+• Prioridad: asimilación""",
+        "Etiquetas": "recuperación, descarga, regenerativo"
+    },
+    {
+        "ID": "AER-001", "Categoría": "Qi Aeróbico",
+        "Título": "Rodaje Aeróbico Fácil 40'",
+        "Objetivo": "Base aeróbica", "Nivel": "Principiante",
+        "Meta": ["5K", "10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 0.67, "TSS": 38.0,
+        "Intensidad": "Bajo (Z1-Z2)", "Fase": "Base",
+        "Día Preferente": "Martes",
+        "Estructura TP": """• 40 min | Z1-Z2\n• Ritmo cómodo y conversacional\n• Sin bloques de intensidad""",
+        "Etiquetas": "aeróbico, base, principiante"
+    },
+    {
+        "ID": "AER-002", "Categoría": "Qi Aeróbico",
+        "Título": "Rodaje Aeróbico Controlado 60'",
+        "Objetivo": "Resistencia aeróbica", "Nivel": "Medio",
+        "Meta": ["5K", "10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 1.00, "TSS": 60.0,
+        "Intensidad": "Bajo (Z1-Z2)", "Fase": "Base",
+        "Día Preferente": "Sábado",
+        "Estructura TP": """• 60 min | Z1-Z2\n• Ritmo aeróbico estable\n• Prioridad: volumen sin fatiga excesiva""",
+        "Etiquetas": "aeróbico, volumen, medio"
+    },
+    {
+        "ID": "AER-006", "Categoría": "Qi Aeróbico",
+        "Título": "Rodaje Aeróbico Progresivo 70'", "Objetivo": "Resistencia aeróbica",
+        "Nivel": "Medio", "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 1.17, "TSS": 70.0,
+        "Intensidad": "Bajo-Moderado (Z1-Z3)", "Fase": "Desarrollo",
+        "Día Preferente": "Sábado",
+        "Estructura TP": """• 50 min | Z1-Z2
+• 15 min progresivos | Z2-Z3
+• 5 min | Z1
+• Sin llegar a umbral""",
+        "Etiquetas": "aeróbico, progresivo, sábado, alternativa"
+    },
+    {
+        "ID": "AER-003", "Categoría": "Qi Aeróbico",
+        "Título": "Rodaje Aeróbico Controlado 50'",
+        "Objetivo": "Resistencia aeróbica", "Nivel": "Experto",
+        "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 0.83, "TSS": 50.0,
+        "Intensidad": "Bajo (Z1-Z2)", "Fase": "Base",
+        "Día Preferente": "Miércoles",
+        "Estructura TP": """• 50 min | Z1-Z2\n• Carrera aeróbica controlada\n• AM: dejar margen para fortalecimiento PM""",
+        "Etiquetas": "aeróbico, doble jornada, experto"
+    },
+    {
+        "ID": "AER-004", "Categoría": "Qi Aeróbico",
+        "Título": "Rodaje Aeróbico Controlado 60'",
+        "Objetivo": "Resistencia aeróbica", "Nivel": "Experto",
+        "Meta": ["10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 1.00, "TSS": 62.0,
+        "Intensidad": "Bajo (Z1-Z2)", "Fase": "Base",
+        "Día Preferente": "Sábado",
+        "Estructura TP": """• 60 min | Z1-Z2\n• Rodaje aeróbico estable\n• Evitar convertirlo en sesión de intensidad""",
+        "Etiquetas": "aeróbico, volumen, experto"
+    },
+    {
+        "ID": "AER-005", "Categoría": "Qi Aeróbico",
+        "Título": "Rodaje Aeróbico Fácil 45'",
+        "Objetivo": "Base aeróbica", "Nivel": "Principiante",
+        "Meta": ["5K", "10K", "Media Maratón", "Maratón"],
+        "Duración (h)": 0.75, "TSS": 42.0,
+        "Intensidad": "Bajo (Z1-Z2)", "Fase": "Base",
+        "Día Preferente": "Jueves",
+        "Estructura TP": """• 45 min | Z1-Z2\n• Ritmo cómodo\n• Finalizar con sensación de reserva""",
+        "Etiquetas": "aeróbico, base, principiante"
+    },
+]
+
+ORDEN_NIVEL = {"Principiante": 1, "Medio": 2, "Experto": 3}
+
+# ============================================================
+# UTILIDADES DEL CATÁLOGO
+# ============================================================
+
+def nivel_num(nivel):
+    return ORDEN_NIVEL.get(nivel, 2)
+
+
+def catalogo_dataFrame():
+    return pd.DataFrame([
+        {
+            "ID": s["ID"],
+            "Categoría": s["Categoría"],
+            "Título": s["Título"],
+            "Objetivo": s["Objetivo"],
+            "Nivel": s["Nivel"],
+            "Meta": ", ".join(s["Meta"]),
+            "Duración (h)": s["Duración (h)"],
+            "TSS": s["TSS"],
+            "Intensidad": s["Intensidad"],
+            "Fase": s["Fase"],
+            "Día Preferente": s["Día Preferente"],
+            "Etiquetas": s["Etiquetas"]
+        }
+        for s in CATALOGO_MAESTRO
+    ])
+
+
+def fase_por_semanas(semanas):
+    if semanas <= 3:
+        return "Específica"
+    if semanas <= 8:
+        return "Desarrollo"
+    return "Base"
+
+
+def objetivos_por_foco(objetivo_semana):
+    if objetivo_semana == "Desarrollo de VO2Max / Velocidad":
+        return ["VO2Max", "Ritmo específico / VO2Max", "Velocidad / VO2Max"]
+    if objetivo_semana == "Umbral / Sostenido":
+        return ["Umbral / Sostenido", "Resistencia aeróbica / Umbral"]
+    if objetivo_semana == "Recuperación / Regenerativo":
+        return ["Recuperación"]
+    return [
+        "Base aeróbica",
+        "Variabilidad de ritmo",
+        "Resistencia aeróbica",
+        "Resistencia aeróbica / incremento de volumen"
+    ]
+
+
+def seleccionar_sesiones(nivel, meta, objetivo_semana, semanas_faltantes):
+    fase_preferida = fase_por_semanas(semanas_faltantes)
+    objetivos = objetivos_por_foco(objetivo_semana)
+    nivel_atleta = nivel_num(nivel)
+    candidatos = []
+
+    for sesion in CATALOGO_MAESTRO:
+        if meta not in sesion["Meta"]:
+            continue
+
+        if nivel_num(sesion["Nivel"]) > nivel_atleta:
+            continue
+
+        score = 0
+        if sesion["Objetivo"] in objetivos:
+            score += 50
+        if sesion["Fase"] == fase_preferida:
+            score += 20
+        if sesion["Nivel"] == nivel:
+            score += 15
+        if sesion["Día Preferente"]:
+            score += 5
+
+        candidatos.append((score, sesion))
+
+    candidatos.sort(key=lambda x: x[0], reverse=True)
+    return [x[1] for x in candidatos]
+
+
+def asignar_dias_sin_duplicados(plan):
+    """Asigna los días estructurales del catálogo sin intercambiar sesiones.
+
+    Regla V3.6: cuando una categoría tiene un día estructural definido, ese
+    día tiene prioridad absoluta. Esto evita que un Long Run termine en
+    martes y que el Tempo termine el domingo solo porque el orden de las
+    propuestas cambió. El fallback solo se usa para categorías sin día
+    estructural o ante una colisión real.
+    """
+    usados = set()
+    plan_asignado = []
+
+    # Primero intentamos respetar el día estructural de cada categoría.
+    # Ordenamos por prioridad para que Long Run tenga siempre su domingo.
+    prioridad_dia = {
+        "Qi Long Run": 100, "Long Run": 100,
+        "Qi Intervalos": 90, "Intervalos": 90,
+        "Qi Tempo": 80, "Tempo": 80,
+        "Recuperación": 70, "Regenerativo": 70,
+        "Qi Fartlek": 60, "Fartlek": 60,
+    }
+
+    sesiones_ordenadas = sorted(
+        plan,
+        key=lambda s: prioridad_dia.get(
+            s.get("Categoría", s.get("Tipo de Sesión", "")), 50
+        ),
+        reverse=True,
+    )
+
+    pendientes = []
+    for sesion in sesiones_ordenadas:
+        categoria = sesion.get("Categoría", sesion.get("Tipo de Sesión", ""))
+        dia_estructural = normalizar_dia_es(DIAS_CATEGORIA.get(categoria))
+
+        if dia_estructural and dia_estructural not in usados:
+            dia_asignado = dia_estructural
+        else:
+            # Solo aquí usamos el día preferente del registro.
+            preferido = normalizar_dia_es(sesion.get("Día"))
+            candidatos = []
+            for dia in (preferido, dia_estructural, *DIAS_ES):
+                dia = normalizar_dia_es(dia)
+                if dia and dia not in candidatos:
+                    candidatos.append(dia)
+            dia_asignado = next(
+                (dia for dia in candidatos if dia not in usados),
+                None
+            )
+
+        if dia_asignado is None:
+            pendientes.append(sesion)
+            continue
+
+        sesion_nueva = dict(sesion)
+        sesion_nueva["Día"] = dia_asignado
+        usados.add(dia_asignado)
+        plan_asignado.append(sesion_nueva)
+
+    # Si hubiera más sesiones que días disponibles, se mantiene el fallback
+    # sin romper la aplicación. En la planificación normal no debería ocurrir.
+    for sesion in pendientes:
+        dia_asignado = next((d for d in DIAS_ES if d not in usados), DIAS_ES[-1])
+        sesion_nueva = dict(sesion)
+        sesion_nueva["Día"] = dia_asignado
+        usados.add(dia_asignado)
+        plan_asignado.append(sesion_nueva)
+
+    plan_asignado.sort(key=lambda s: DIAS_ES.index(s["Día"]))
+    return plan_asignado
+
+
+FRECUENCIA_OBJETIVO_POR_NIVEL = {
+    "Principiante": 3,
+    "Medio": 4,
+    "Experto": 5,
+}
+
+# ============================================================
+# V3.9 — MOTOR DE ESTRUCTURA SEMANAL + RESTRICCIONES
+# ============================================================
+# La estructura decide primero QUÉ espacios existen en la semana.
+# El Catálogo Maestro decide DESPUÉS qué sesión concreta ocupa cada espacio.
+
+ESTRUCTURA_SEMANAL = {
+    "Principiante": [
+        {"dia": "Martes", "rol": "Aeróbico", "etiqueta": "Carrera"},
+        {"dia": "Jueves", "rol": "Aeróbico", "etiqueta": "Carrera"},
+        {"dia": "Domingo", "rol": "Long Run", "etiqueta": "Long Run"},
+    ],
+    "Medio": [
+        {"dia": "Martes", "rol": "Intervalos", "etiqueta": "Calidad"},
+        {"dia": "Jueves", "rol": "Tempo", "etiqueta": "Umbral"},
+        {"dia": "Sábado", "rol": "Aeróbico", "etiqueta": "Carrera aeróbica"},
+        {"dia": "Domingo", "rol": "Long Run", "etiqueta": "Long Run"},
+    ],
+    "Experto": [
+        {"dia": "Martes", "rol": "Intervalos", "etiqueta": "Calidad"},
+        {"dia": "Miércoles", "rol": "Aeróbico", "etiqueta": "Carrera AM + Fuerza PM", "doble_jornada": True},
+        {"dia": "Jueves", "rol": "Tempo", "etiqueta": "Umbral"},
+        {"dia": "Sábado", "rol": "Aeróbico", "etiqueta": "Carrera aeróbica"},
+        {"dia": "Domingo", "rol": "Long Run", "etiqueta": "Long Run"},
+    ],
+}
+
+DIAS_FUERZA_POR_NIVEL = {
+    "Principiante": ["Miércoles", "Viernes"],
+    "Medio": ["Miércoles", "Viernes"],
+    "Experto": ["Miércoles", "Viernes"],
+}
+
+FRECUENCIA_OBJETIVO_POR_NIVEL = {
+    "Principiante": 3,
+    "Medio": 4,
+    "Experto": 5,
+}
+
+PRIORIDAD_CATEGORIA = {
+    "Qi Long Run": 100, "Long Run": 100,
+    "Qi Tempo": 90, "Tempo": 90,
+    "Qi Intervalos": 85, "Intervalos": 85,
+    "Qi Aeróbico": 70, "Aeróbico": 70,
+    "Recuperación": 65, "Regenerativo": 65,
+    "Qi Fartlek": 60, "Fartlek": 60,
+}
+
+# V4.0: esta estructura es la única fuente de verdad para los espacios
+# semanales. El catálogo NO puede crear, mover ni intercambiar días.
+
+def frecuencia_objetivo_nivel(nivel):
+    return FRECUENCIA_OBJETIVO_POR_NIVEL.get(nivel, 4)
+
+
+def rol_estructural(sesion):
+    categoria = sesion.get("Categoría", sesion.get("Tipo de Sesión", ""))
+    if categoria in ("Qi Long Run", "Long Run"):
+        return "Long Run"
+    if categoria in ("Qi Intervalos", "Intervalos"):
+        return "Intervalos"
+    if categoria in ("Qi Tempo", "Tempo"):
+        return "Tempo"
+    if categoria in ("Qi Aeróbico", "Aeróbico", "Recuperación", "Regenerativo"):
+        return "Aeróbico"
+    if categoria in ("Qi Fartlek", "Fartlek"):
+        return "Fartlek"
+    return "Otro"
+
+
+def preparar_sesion(sesion, dia, rol=None, doble_jornada=False):
+    sesion_plan = dict(sesion)
+    rol = rol or rol_estructural(sesion)
+    sesion_plan.update({
+        "Día": dia,
+        "Tipo de Sesión": sesion.get("Categoría", ""),
+        "Rol Estructural": rol,
+        "Doble Jornada": bool(doble_jornada),
+        "Estructura Breve": (
+            f"{sesion['Título']} | {sesion['Objetivo']} | {sesion['Intensidad']}"
+        ),
+        "Estructura Detallada para TP": sesion["Estructura TP"],
+        "TSS Estimado": sesion["TSS"],
+        "Horas Estimadas": sesion["Duración (h)"]
+    })
+    return sesion_plan
+
+
+def seleccionar_para_estructura(nivel, meta, objetivo_semana, semanas_faltantes):
+    """V4.0: construye la semana desde la estructura, no desde el catálogo.
+
+    Jerarquía obligatoria:
+        nivel -> día/rol -> catálogo -> sesión concreta
+
+    Un entrenamiento solo puede ocupar un espacio si su rol coincide con
+    el rol estructural de ese día. No existe fallback de día ni de rol.
+    Si no hay candidato, el espacio queda vacío y se reporta como hueco.
+    """
+    estructura = ESTRUCTURA_SEMANAL.get(nivel, ESTRUCTURA_SEMANAL["Medio"])
+    fase_preferida = fase_por_semanas(semanas_faltantes)
+    objetivos = objetivos_por_foco(objetivo_semana)
+    nivel_atleta = nivel_num(nivel)
+    resultado = []
+    ids_usados = set()
+
+    for slot in estructura:
+        candidatos = []
+        dia = normalizar_dia_es(slot["dia"])
+        rol_objetivo = slot["rol"]
+
+        for s in CATALOGO_MAESTRO:
+            if s["ID"] in ids_usados:
+                continue
+            if meta not in s["Meta"]:
+                continue
+            if nivel_num(s["Nivel"]) > nivel_atleta:
+                continue
+            # REGLA FUERTE: el rol del catálogo debe coincidir exactamente
+            # con el rol que la estructura asignó al día.
+            if rol_estructural(s) != rol_objetivo:
+                continue
+
+            score = 100
+            if s["Nivel"] == nivel:
+                score += 50
+            if s["Objetivo"] in objetivos:
+                score += 20
+            if s["Fase"] == fase_preferida:
+                score += 15
+            if normalizar_dia_es(s.get("Día Preferente")) == dia:
+                score += 30
+
+            candidatos.append((score, s))
+
+        candidatos.sort(
+            key=lambda x: (x[0], x[1]["Nivel"] == nivel, x[1]["TSS"]),
+            reverse=True
+        )
+
+        if candidatos:
+            s = candidatos[0][1]
+            resultado.append(
+                preparar_sesion(
+                    s, dia, rol_objetivo, slot.get("doble_jornada", False)
+                )
+            )
+            ids_usados.add(s["ID"])
+        else:
+            # No inventamos ni movemos una sesión. El hueco se registra.
+            resultado.append({
+                "ID": f"HUECO-{dia.upper()}",
+                "Título": f"Sin sesión compatible para {rol_objetivo}",
+                "Categoría": "Sin asignar",
+                "Objetivo": "Requiere ampliar catálogo",
+                "Nivel": nivel,
+                "Meta": [meta],
+                "Duración (h)": 0.0,
+                "TSS": 0.0,
+                "TSS Estimado": 0.0,
+                "Horas Estimadas": 0.0,
+                "Intensidad": "N/A",
+                "Fase": fase_preferida,
+                "Día Preferente": dia,
+                "Día": dia,
+                "Rol Estructural": rol_objetivo,
+                "Tipo de Sesión": "Sin asignar",
+                "Doble Jornada": bool(slot.get("doble_jornada", False)),
+                "Estructura Breve": f"Falta sesión de rol {rol_objetivo}",
+                "Estructura Detallada para TP": "No existe una sesión compatible en el Catálogo Maestro.",
+                "Estructura TP": "No existe una sesión compatible en el Catálogo Maestro.",
+                "Etiquetas": "hueco estructural"
+            })
+
+    return resultado
+
+
+def construir_planeacion_catalogo(nivel, meta, objetivo_semana, semanas_faltantes):
+    return seleccionar_para_estructura(
+        nivel, meta, objetivo_semana, semanas_faltantes
+    )
+
+
+def validar_y_corregir_planeacion_estructura(plan, nivel, meta, objetivo_semana, semanas_faltantes):
+    """V4.0: auditor estructural absoluto.
+
+    No reubica sesiones. Reconstruye cada espacio desde la estructura y solo
+    conserva una sesión existente cuando su rol coincide con el rol esperado.
+    Así se corrigen también planes heredados de V3.x que dejaron Long Run en
+    martes o Tempo en domingo.
+    """
+    estructura = ESTRUCTURA_SEMANAL.get(nivel, ESTRUCTURA_SEMANAL["Medio"])
+    por_dia = {normalizar_dia_es(s.get("Día")): s for s in plan if s.get("Día")}
+    resultado = []
+    usados = set()
+
+    fase_preferida = fase_por_semanas(semanas_faltantes)
+    objetivos = objetivos_por_foco(objetivo_semana)
+    nivel_atleta = nivel_num(nivel)
+
+    for slot in estructura:
+        dia = normalizar_dia_es(slot["dia"])
+        rol_esperado = slot["rol"]
+        actual = por_dia.get(dia)
+
+        if (
+            actual
+            and rol_estructural(actual) == rol_esperado
+            and actual.get("ID") not in usados
+            and not str(actual.get("ID", "")).startswith("HUECO-")
+        ):
+            corregida = preparar_sesion(
+                actual, dia, rol_esperado, slot.get("doble_jornada", False)
+            )
+            resultado.append(corregida)
+            usados.add(corregida["ID"])
+            continue
+
+        # Si el espacio está vacío o tiene un rol incorrecto, buscamos de
+        # nuevo EXCLUSIVAMENTE dentro del rol estructural esperado.
+        candidatos = []
+        for s in CATALOGO_MAESTRO:
+            if s["ID"] in usados or meta not in s["Meta"]:
+                continue
+            if nivel_num(s["Nivel"]) > nivel_atleta:
+                continue
+            if rol_estructural(s) != rol_esperado:
+                continue
+
+            score = 100
+            if s["Nivel"] == nivel:
+                score += 50
+            if s["Objetivo"] in objetivos:
+                score += 20
+            if s["Fase"] == fase_preferida:
+                score += 15
+            if normalizar_dia_es(s.get("Día Preferente")) == dia:
+                score += 30
+            candidatos.append((score, s))
+
+        candidatos.sort(
+            key=lambda x: (x[0], x[1]["Nivel"] == nivel, x[1]["TSS"]),
+            reverse=True
+        )
+
+        if candidatos:
+            s = candidatos[0][1]
+            corregida = preparar_sesion(
+                s, dia, rol_esperado, slot.get("doble_jornada", False)
+            )
+            resultado.append(corregida)
+            usados.add(s["ID"])
+        else:
+            resultado.append({
+                "ID": f"HUECO-{dia.upper()}",
+                "Título": f"Sin sesión compatible para {rol_esperado}",
+                "Categoría": "Sin asignar",
+                "Objetivo": "Requiere ampliar catálogo",
+                "Nivel": nivel,
+                "Meta": [meta],
+                "Duración (h)": 0.0,
+                "TSS": 0.0,
+                "TSS Estimado": 0.0,
+                "Horas Estimadas": 0.0,
+                "Intensidad": "N/A",
+                "Fase": fase_preferida,
+                "Día Preferente": dia,
+                "Día": dia,
+                "Rol Estructural": rol_esperado,
+                "Tipo de Sesión": "Sin asignar",
+                "Doble Jornada": bool(slot.get("doble_jornada", False)),
+                "Estructura Breve": f"Falta sesión de rol {rol_esperado}",
+                "Estructura Detallada para TP": "No existe una sesión compatible en el Catálogo Maestro.",
+                "Estructura TP": "No existe una sesión compatible en el Catálogo Maestro.",
+                "Etiquetas": "hueco estructural"
+            })
+
+    return resultado
+
+
+DIAS_ES = [
+    "Lunes", "Martes", "Miércoles", "Jueves",
+    "Viernes", "Sábado", "Domingo"
+]
+
+DIAS_ES_NORMALIZADOS = {
+    "monday": "Lunes", "tuesday": "Martes", "wednesday": "Miércoles",
+    "thursday": "Jueves", "friday": "Viernes", "saturday": "Sábado",
+    "sunday": "Domingo", "lunes": "Lunes", "martes": "Martes",
+    "miércoles": "Miércoles", "miercoles": "Miércoles", "jueves": "Jueves",
+    "viernes": "Viernes", "sábado": "Sábado", "sabado": "Sábado",
+    "domingo": "Domingo"
+}
+
+DIAS_CATEGORIA = {
+    "Qi Intervalos": "Martes", "Intervalos": "Martes",
+    "Qi Tempo": "Jueves", "Tempo": "Jueves",
+    "Qi Fartlek": "Sábado", "Fartlek": "Sábado",
+    "Qi Long Run": "Domingo", "Long Run": "Domingo",
+    "Recuperación": "Miércoles", "Regenerativo": "Miércoles"
+}
+
+
+def normalizar_dia_es(dia):
+    if not dia:
+        return None
+    texto = str(dia).strip()
+    return DIAS_ES_NORMALIZADOS.get(texto.lower(), texto)
+
+
+def nombre_dia_es(fecha):
+    return DIAS_ES[fecha.weekday()]
+
+
+def fecha_lunes_siguiente(fecha_base=None):
+    fecha_base = fecha_base or datetime.now()
+    dias = (7 - fecha_base.weekday()) % 7
+    if dias == 0:
+        dias = 7
+    return (fecha_base + timedelta(days=dias)).date()
+
+
+def fechas_plan_semana(lunes):
+    return {dia: lunes + timedelta(days=i) for i, dia in enumerate(DIAS_ES)}
+
+
+def fecha_sesion(plan, lunes):
+    dia = normalizar_dia_es(plan.get("Día", ""))
+    return fechas_plan_semana(lunes).get(dia, lunes)
+
+
+# ============================================================
+# MOTOR DE RECOMENDACIÓN
+# ============================================================
+
+def generar_recomendacion(
+    tss_real, tss_plan, horas_real, horas_plan,
+    sesiones_real, nivel, semanas_faltantes
+):
+    recomendaciones = []
+    alertas = []
+
+    porcentaje_tss = (
+        ((tss_real - tss_plan) / tss_plan) * 100
+        if tss_plan > 0 else 0
+    )
+    porcentaje_horas = (
+        ((horas_real - horas_plan) / horas_plan) * 100
+        if horas_plan > 0 else 0
+    )
+
+    if porcentaje_tss > 20:
+        recomendaciones.append(
+            "La carga ejecutada estuvo claramente por encima de la referencia."
+        )
+        alertas.append("⚠️ TSS significativamente superior al plan.")
+    elif porcentaje_tss > 10:
+        recomendaciones.append(
+            "La carga ejecutada estuvo moderadamente por encima de la referencia."
+        )
+    elif porcentaje_tss < -20:
+        recomendaciones.append(
+            "La carga ejecutada estuvo significativamente por debajo de la referencia."
+        )
+        alertas.append("⚠️ TSS significativamente inferior al plan.")
+    elif porcentaje_tss < -10:
+        recomendaciones.append(
+            "La carga ejecutada estuvo moderadamente por debajo de la referencia."
+        )
+    else:
+        recomendaciones.append(
+            "La carga ejecutada se mantuvo relativamente cercana a la referencia."
+        )
+
+    if porcentaje_horas > 15:
+        recomendaciones.append(
+            "El volumen de tiempo también estuvo por encima de lo previsto."
+        )
+        alertas.append("⏱️ Volumen superior al plan.")
+    elif porcentaje_horas < -15:
+        recomendaciones.append(
+            "El volumen de tiempo quedó por debajo de lo previsto."
+        )
+        alertas.append("⏱️ Volumen inferior al plan.")
+
+    if sesiones_real == 0:
+        alertas.append("🚨 No se detectaron sesiones en el periodo analizado.")
+
+    if porcentaje_tss > 20:
+        general = (
+            "🟠 Considerar una reducción o asimilación de carga "
+            "antes de incrementar nuevamente."
+        )
+        decision = "Reducir carga"
+    elif porcentaje_tss < -20:
+        general = (
+            "🟡 Revisar las causas del bajo cumplimiento antes "
+            "de aumentar automáticamente la carga."
+        )
+        decision = "Revisar / Mantener"
+    elif semanas_faltantes <= 3:
+        general = (
+            "🔴 Estamos cerca de la competencia. La prioridad debe "
+            "ser especificidad, asimilación y control de fatiga."
+        )
+        decision = "Mantener / Afinar"
+    else:
+        general = (
+            "🟢 La carga parece razonablemente controlada. Puede "
+            "continuarse con la progresión prevista, siempre bajo "
+            "criterio del entrenador."
+        )
+        decision = "Mantener"
+
+    return {
+        "recomendaciones": recomendaciones,
+        "alertas": alertas,
+        "general": general,
+        "decision_sugerida": decision,
+        "porcentaje_tss": porcentaje_tss,
+        "porcentaje_horas": porcentaje_horas
+    }
+
+
+# ============================================================
+# V3.9 — RESTRICCIONES DERIVADAS DE DECISIONES DEL ENTRENADOR
+# ============================================================
+
+def rol_estructural_para_dia(nivel, dia):
+    """Devuelve el rol que la estructura semanal asigna a un día."""
+    dia = normalizar_dia_es(dia)
+    estructura = ESTRUCTURA_SEMANAL.get(
+        nivel,
+        ESTRUCTURA_SEMANAL["Medio"]
+    )
+    for slot in estructura:
+        if normalizar_dia_es(slot.get("dia")) == dia:
+            return slot.get("rol")
+    return None
+
+
+def restricciones_rechazo_semana(
+    decisiones_sesiones,
+    lunes_plan,
+    nivel
+):
+    """
+    Construye restricciones activas para la semana.
+
+    Una sesión rechazada deja de ser solamente un registro:
+    se convierte en una restricción para nuevas sugerencias de esa
+    misma fecha. El rol/categoría rechazados no se vuelven a proponer
+    en ese espacio; el sistema intenta regresar al rol estructural
+    definido para el nivel.
+    """
+    restricciones = {}
+
+    if not decisiones_sesiones or lunes_plan is None:
+        return restricciones
+
+    inicio = lunes_plan
+    fin = lunes_plan + timedelta(days=6)
+
+    for key, registro in decisiones_sesiones.items():
+        if not isinstance(registro, dict):
+            continue
+
+        if registro.get("estado") != "Rechazar":
+            continue
+
+        fecha_texto = registro.get("fecha")
+        if not fecha_texto:
+            continue
+
+        try:
+            fecha_rechazo = datetime.strptime(
+                str(fecha_texto)[:10], "%Y-%m-%d"
+            ).date()
+        except Exception:
+            continue
+
+        if not (inicio <= fecha_rechazo <= fin):
+            continue
+
+        sesion_rechazada = registro.get("sesion_actual", {})
+        if not isinstance(sesion_rechazada, dict):
+            continue
+
+        dia = nombre_dia_es(fecha_rechazo)
+        rol_rechazado = rol_estructural(sesion_rechazada)
+        categoria_rechazada = sesion_rechazada.get(
+            "Categoría",
+            sesion_rechazada.get("Tipo de Sesión", "")
+        )
+
+        restricciones[dia] = {
+            "ids": {
+                sesion_rechazada.get("ID")
+            } if sesion_rechazada.get("ID") else set(),
+            "roles": {rol_rechazado} if rol_rechazado else set(),
+            "categorias": (
+                {categoria_rechazada}
+                if categoria_rechazada else set()
+            ),
+            "rol_estructural": rol_estructural_para_dia(
+                nivel, dia
+            )
+        }
+
+    return restricciones
+
+
+# ============================================================
+# NUEVA SUGERENCIA
+# ============================================================
+
+def buscar_nueva_sugerencia(
+    sesion_actual,
+    nivel,
+    meta,
+    objetivo_semana,
+    semanas_faltantes,
+    feedback="",
+    ids_excluidos=None,
+    dia_objetivo=None,
+    rol_objetivo=None,
+    roles_excluidos=None,
+    categorias_excluidas=None,
+):
+    """Busca una sustitución respetando primero el rol estructural del día.
+
+    V3.9 corregida:
+    1) nunca cambia el rol estructural del día;
+    2) intenta mismo nivel + misma meta;
+    3) si se agotan alternativas, permite un nivel inferior compatible;
+    4) jamás vuelve a ofrecer el rol/categoría rechazados.
+    """
+    ids_excluidos = set(ids_excluidos or [])
+    ids_excluidos.add(sesion_actual.get("ID"))
+    roles_excluidos = set(roles_excluidos or [])
+    categorias_excluidas = set(categorias_excluidas or [])
+
+    dia_objetivo = normalizar_dia_es(dia_objetivo) if dia_objetivo else None
+    rol_objetivo = rol_objetivo or (
+        rol_estructural_para_dia(nivel, dia_objetivo) if dia_objetivo else None
+    ) or rol_estructural(sesion_actual)
+
+    nivel_atleta = nivel_num(nivel)
+    fase = fase_por_semanas(semanas_faltantes)
+    objetivos = objetivos_por_foco(objetivo_semana)
+    texto = (feedback or "").lower()
+
+    pide_mas_carga = any(p in texto for p in [
+        "más carga", "mas carga", "más volumen", "mas volumen",
+        "más tiempo", "mas tiempo", "insuficiente", "aumentar"
+    ])
+    pide_menos_carga = any(p in texto for p in [
+        "menos carga", "menos volumen", "menos tiempo",
+        "reducir", "fatiga", "descarga"
+    ])
+
+    duracion_actual = float(sesion_actual.get("Duración (h)", sesion_actual.get("Horas Estimadas", 0)))
+    tss_actual = float(sesion_actual.get("TSS", sesion_actual.get("TSS Estimado", 0)))
+
+    def candidatos_para(mismo_nivel=True, permitir_ids_excluidos=False):
+        candidatos = []
+        for s in CATALOGO_MAESTRO:
+            if not permitir_ids_excluidos and s["ID"] in ids_excluidos:
+                continue
+            if meta not in s["Meta"]:
+                continue
+            if nivel_num(s["Nivel"]) > nivel_atleta:
+                continue
+            if mismo_nivel and s["Nivel"] != nivel:
+                continue
+            if rol_estructural(s) != rol_objetivo:
+                continue
+            if rol_estructural(s) in roles_excluidos:
+                continue
+            if s.get("Categoría", "") in categorias_excluidas:
+                continue
+
+            score = 100
+            if s["Nivel"] == nivel:
+                score += 35
+            if s["Objetivo"] in objetivos:
+                score += 25
+            if s["Fase"] == fase:
+                score += 15
+            if dia_objetivo and normalizar_dia_es(s.get("Día Preferente")) == dia_objetivo:
+                score += 25
+            if pide_mas_carga:
+                if s["Duración (h)"] > duracion_actual:
+                    score += 35
+                if s["TSS"] > tss_actual:
+                    score += 25
+            if pide_menos_carga:
+                if s["Duración (h)"] < duracion_actual:
+                    score += 35
+                if s["TSS"] < tss_actual:
+                    score += 25
+            candidatos.append((score, s))
+        candidatos.sort(key=lambda x: (x[0], x[1]["TSS"]), reverse=True)
+        return candidatos
+
+    candidatos = candidatos_para(mismo_nivel=True)
+
+    # Fallback controlado: nivel inferior, mismo rol y misma meta.
+    if not candidatos:
+        candidatos = candidatos_para(mismo_nivel=False)
+
+    if not candidatos:
+        return None
+
+    nueva = dict(candidatos[0][1])
+    if dia_objetivo:
+        nueva["Día"] = dia_objetivo
+    nueva["Rol Estructural"] = rol_objetivo
+    nueva["Doble Jornada"] = bool(sesion_actual.get("Doble Jornada", False))
+    nueva["Tipo de Sesión"] = nueva.get("Categoría", "")
+    nueva["Estructura Breve"] = f"{nueva['Título']} | {nueva['Objetivo']} | {nueva['Intensidad']}"
+    nueva["Estructura Detallada para TP"] = nueva["Estructura TP"]
+    nueva["TSS Estimado"] = nueva["TSS"]
+    nueva["Horas Estimadas"] = nueva["Duración (h)"]
+    return nueva
+
+
+def clave_sesion(fecha, session_id):
+    return f"{fecha.strftime('%Y-%m-%d')}|{session_id}"
+
+
+def clave_espacio(fecha, rol):
+    """V4.0: identidad estable del espacio semanal.
+
+    La decisión del entrenador pertenece al espacio estructural (fecha + rol),
+    no al ID concreto del entrenamiento. Si el catálogo cambia la sesión,
+    la decisión y el historial siguen ligados al mismo espacio.
+    """
+    return f"{fecha.strftime('%Y-%m-%d')}|{rol}"
+
+
+# ============================================================
+# ENCABEZADO
+# ============================================================
+
+st.title("🏃‍♂️ Qi Team")
+st.caption(f"🟣 VERSIÓN {VERSION_APP} — {NOMBRE_VERSION}")
+st.markdown(
+    """
+**Sistema de gestión, análisis y seguimiento de corredores.**
+
+### 🧠 Sistema recomienda → 📚 Catálogo Maestro → 👨‍🏫 Entrenador decide → 🔄 Sistema puede volver a sugerir → 💾 Se registra la decisión
+"""
+)
+
+# ============================================================
+# MENÚ
+# ============================================================
+
+st.sidebar.header(f"⚙️ Qi Team {VERSION_APP}")
+st.sidebar.markdown(f"### 🟣 {NOMBRE_VERSION}")
+
+modo = st.sidebar.radio(
+    "Seleccionar Sección",
+    [
+        "📊 Monitoreo y Seguimiento de Atleta",
+        "🏃‍♂️ Biblioteca de Corredores",
+        "📚 Catálogo Maestro V4.0",
+        "🔎 Explorador de Entrenamientos"
+    ]
+)
+
+# ============================================================
+# BIBLIOTECA
+# ============================================================
+
+if modo == "🏃‍♂️ Biblioteca de Corredores":
+    st.subheader("🏃‍♂️ Biblioteca y Directorio de Corredores")
+    st.markdown(
+        "Gestiona tu equipo de atletas, revisa sus metas y registra nuevos deportistas."
+    )
+
+    with st.expander("➕ Registrar Nuevo Corredor"):
+        with st.form("nuevo_atleta_form"):
+            nuevo_nombre = st.text_input("Nombre y Apellido del Corredor")
+            nuevo_genero = st.selectbox("Género", ["Masculino", "Femenino"])
+            nuevo_nivel = st.selectbox(
+                "Nivel del Atleta",
+                ["Principiante", "Medio", "Experto"]
+            )
+            nueva_meta = st.selectbox(
+                "Distancia / Carrera Objetivo",
+                ["5K", "10K", "Media Maratón", "Maratón", "Otra"]
+            )
+            nueva_fecha = st.date_input("Fecha de la Carrera")
+            submit_button = st.form_submit_button("Guardar Corredor")
+
+            if submit_button and nuevo_nombre:
+                st.session_state["atletas_db"][nuevo_nombre] = {
+                    "genero": nuevo_genero,
+                    "nivel": nuevo_nivel,
+                    "meta": nueva_meta,
+                    "fecha_objetivo": datetime.combine(
+                        nueva_fecha, datetime.min.time()
+                    ),
+                    "fase_ciclo": (
+                        "Fase Folicular / Normal"
+                        if nuevo_genero == "Femenino" else "N/A"
+                    ),
+                    "csv_data_historico": None,
+                    "archivos_cargados": [],
+                    "decisiones_entrenador": [],
+                    "decisiones_sesiones": {}
+                }
+                guardar_db(st.session_state["atletas_db"])
+                st.success(
+                    f"¡Corredor **{nuevo_nombre}** guardado exitosamente!"
+                )
+
+    st.markdown("---")
+    st.subheader("📋 Listado Actual de Atletas Registrados")
+
+    lista_tabla = []
+    for nombre, datos in st.session_state["atletas_db"].items():
+        fecha = datos.get("fecha_objetivo", datetime.now())
+        lista_tabla.append({
+            "Corredor": nombre,
+            "Género": datos.get("genero", ""),
+            "Nivel": datos.get("nivel", ""),
+            "Meta": datos.get("meta", ""),
+            "Fecha Objetivo": fecha.strftime("%Y-%m-%d"),
+            "Semanas/Archivos Acumulados": len(
+                datos.get("archivos_cargados", [])
+            )
+        })
+
+    st.dataframe(pd.DataFrame(lista_tabla), use_container_width=True)
+
+# ============================================================
+# CATÁLOGO
+# ============================================================
+
+elif modo == "📚 Catálogo Maestro V3.5":
+    st.subheader("📚 CATÁLOGO MAESTRO — V4.0")
+
+    st.success(
+        "El catálogo propone opciones. El entrenador conserva la última palabra. "
+        "V4.0 fija la estructura por nivel y evita que el catálogo mueva sesiones entre días."
+    )
+
+    df_catalogo = catalogo_dataFrame()
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Entrenamientos", len(CATALOGO_MAESTRO))
+    c2.metric("Categorías", df_catalogo["Categoría"].nunique())
+    c3.metric("Objetivos", df_catalogo["Objetivo"].nunique())
+    c4.metric("Niveles", df_catalogo["Nivel"].nunique())
+
+    st.markdown("---")
+
+    filtro_categoria = st.selectbox(
+        "Filtrar por categoría",
+        ["Todas"] + sorted(df_catalogo["Categoría"].unique().tolist())
+    )
+    filtro_nivel = st.selectbox(
+        "Filtrar por nivel",
+        ["Todos", "Principiante", "Medio", "Experto"]
+    )
+
+    vista = df_catalogo.copy()
+
+    if filtro_categoria != "Todas":
+        vista = vista[vista["Categoría"] == filtro_categoria]
+    if filtro_nivel != "Todos":
+        vista = vista[vista["Nivel"] == filtro_nivel]
+
+    st.dataframe(vista, use_container_width=True, hide_index=True)
+
+    st.info(
+        "🔑 Cada entrenamiento conserva un ID único. En V3.3 el ID, la fecha, "
+        "la decisión y el motivo quedan disponibles para construir trazabilidad."
+    )
+
+# ============================================================
+# EXPLORADOR
+# ============================================================
+
+elif modo == "🔎 Explorador de Entrenamientos":
+    st.subheader("🔎 Explorador de Entrenamientos")
+
+    opciones = {
+        f"{s['ID']} — {s['Título']}": s for s in CATALOGO_MAESTRO
+    }
+
+    seleccion = st.selectbox("Seleccionar entrenamiento", list(opciones.keys()))
+    s = opciones[seleccion]
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("TSS", f"{s['TSS']:.1f}")
+    c2.metric("Duración", f"{s['Duración (h)']:.2f} h")
+    c3.metric("Nivel", s["Nivel"])
+
+    st.markdown(f"### {s['Título']}")
+    st.write(f"**ID:** {s['ID']}")
+    st.write(f"**Categoría:** {s['Categoría']}")
+    st.write(f"**Objetivo:** {s['Objetivo']}")
+    st.write(f"**Meta:** {', '.join(s['Meta'])}")
+    st.write(f"**Intensidad:** {s['Intensidad']}")
+    st.write(f"**Fase:** {s['Fase']}")
+    st.write(f"**Día preferente:** {s['Día Preferente']}")
+    st.write(f"**Etiquetas:** {s['Etiquetas']}")
+    st.markdown("### 📝 Estructura para TrainingPeaks")
+    st.code(s["Estructura TP"], language="text")
+
+# ============================================================
+# MONITOREO
+# ============================================================
+
+else:
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("👤 Selección de Atleta")
+
+    lista_nombres = list(st.session_state["atletas_db"].keys())
+    atleta_seleccionado = st.sidebar.selectbox(
+        "Seleccionar Atleta Activo", lista_nombres
+    )
+
+    perfil = st.session_state["atletas_db"][atleta_seleccionado]
+
+    genero = st.sidebar.selectbox(
+        "Género",
+        ["Masculino", "Femenino"],
+        index=0 if perfil.get("genero") == "Masculino" else 1
+    )
+
+    nivel_atleta = st.sidebar.selectbox(
+        "Nivel del Atleta",
+        ["Principiante", "Medio", "Experto"],
+        index=["Principiante", "Medio", "Experto"].index(
+            perfil.get("nivel", "Medio")
+        )
+    )
+
+    fase_menstrual = "N/A"
+    if genero == "Femenino":
+        opciones_ciclo = [
+            "Fase Folicular / Normal",
+            "Días de Menstruación",
+            "Fase Ovulatoria",
+            "Fase Lútea"
+        ]
+        fase_actual = perfil.get("fase_ciclo", opciones_ciclo[0])
+        if fase_actual not in opciones_ciclo:
+            fase_actual = opciones_ciclo[0]
+        fase_menstrual = st.sidebar.selectbox(
+            "Fase Ciclo / Menstruación",
+            opciones_ciclo,
+            index=opciones_ciclo.index(fase_actual)
+        )
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🏁 Competencia Meta")
+
+    opciones_distancia = ["5K", "10K", "Media Maratón", "Maratón", "Otra"]
+    meta_actual = perfil.get("meta", "10K")
+    if meta_actual not in opciones_distancia:
+        meta_actual = "10K"
+
+    meta_input = st.sidebar.selectbox(
+        "Distancia Objetivo",
+        opciones_distancia,
+        index=opciones_distancia.index(meta_actual)
+    )
+
+    fecha_input = st.sidebar.date_input(
+        "Fecha Objetivo",
+        value=perfil.get("fecha_objetivo", datetime(2026, 10, 15))
+    )
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🎯 Objetivo de la Semana")
+
+    objetivo_semana = st.sidebar.selectbox(
+        "Foco del Entrenamiento",
+        [
+            "Qi General / Base",
+            "Desarrollo de VO2Max / Velocidad",
+            "Umbral / Sostenido",
+            "Recuperación / Regenerativo"
+        ]
+    )
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📂 Carga de Entrenamientos Semanales")
+
+    uploaded_file = st.sidebar.file_uploader(
+        "Subir CSV de TrainingPeaks (Lunes)",
+        type=["csv"],
+        key=f"uploader_{atleta_seleccionado}"
+    )
+
+    if uploaded_file is not None:
+        nombre_archivo = uploaded_file.name
+        archivos_previos = perfil.get("archivos_cargados", [])
+
+        if nombre_archivo not in archivos_previos:
+            nuevo_df = pd.read_csv(uploaded_file)
+
+            if perfil.get("csv_data_historico"):
+                df_antiguo = pd.read_csv(
+                    io.StringIO(perfil["csv_data_historico"])
+                )
+                df_combinado = pd.concat(
+                    [df_antiguo, nuevo_df]
+                ).drop_duplicates().reset_index(drop=True)
+            else:
+                df_combinado = nuevo_df
+
+            perfil["csv_data_historico"] = df_combinado.to_csv(index=False)
+            archivos_previos.append(nombre_archivo)
+            perfil["archivos_cargados"] = archivos_previos
+            guardar_db(st.session_state["atletas_db"])
+
+            st.sidebar.success(
+                f"¡Semana agregada con éxito! Archivo: {nombre_archivo}"
+            )
+        else:
+            st.sidebar.info(
+                f"El archivo '{nombre_archivo}' ya había sido cargado."
+            )
+
+    if perfil.get("archivos_cargados"):
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🗑️ Gestión de Archivos")
+        st.sidebar.write(
+            f"Archivos guardados: {len(perfil['archivos_cargados'])}"
+        )
+
+        if st.sidebar.button(
+            "🗑️ Eliminar último archivo cargado",
+            key=f"btn_del_{atleta_seleccionado}"
+        ):
+            archivo_removido = perfil["archivos_cargados"].pop()
+            perfil["csv_data_historico"] = None
+            perfil["archivos_cargados"] = []
+            guardar_db(st.session_state["atletas_db"])
+            st.sidebar.warning(
+                f"Se limpió el historial al eliminar '{archivo_removido}'."
+            )
+            st.rerun()
+
+        if st.sidebar.button(
+            "⚠️ Reiniciar todo el historial",
+            key=f"btn_reset_{atleta_seleccionado}"
+        ):
+            perfil["csv_data_historico"] = None
+            perfil["archivos_cargados"] = []
+            guardar_db(st.session_state["atletas_db"])
+            st.sidebar.success("¡Historial reiniciado!")
+            st.rerun()
+
+    # --------------------------------------------------------
+    # ACTUALIZAR PERFIL
+    # --------------------------------------------------------
+
+    perfil_actualizado = {
+        "genero": genero,
+        "nivel": nivel_atleta,
+        "meta": meta_input,
+        "fecha_objetivo": datetime.combine(fecha_input, datetime.min.time()),
+        "fase_ciclo": fase_menstrual,
+        "csv_data_historico": perfil.get("csv_data_historico"),
+        "archivos_cargados": perfil.get("archivos_cargados", []),
+        "decisiones_entrenador": perfil.get("decisiones_entrenador", []),
+        "decisiones_sesiones": perfil.get("decisiones_sesiones", {})
+    }
+
+    st.session_state["atletas_db"][atleta_seleccionado] = perfil_actualizado
+    guardar_db(st.session_state["atletas_db"])
+    perfil = perfil_actualizado
+
+    # --------------------------------------------------------
+    # SEMANAS Y DATAFRAME
+    # --------------------------------------------------------
+
+    hoy = datetime.now()
+    diferencia_semana = max(
+        0, (perfil["fecha_objetivo"] - hoy).days // 7
+    )
+
+    df = None
+    if perfil.get("csv_data_historico") is not None:
+        try:
+            df = pd.read_csv(io.StringIO(perfil["csv_data_historico"]))
+        except Exception:
+            df = None
+    else:
+        try:
+            df = pd.read_csv("workouts.csv")
+        except Exception:
+            df = None
+
+    if df is not None:
+        total_semanas_cargadas = len(perfil.get("archivos_cargados", []))
+
+        st.success(
+            f"Analizando perfil histórico de: **{atleta_seleccionado}** | "
+            f"Archivos acumulados: **{total_semanas_cargadas}** | "
+            f"Meta: **{meta_input}** | 🟣 **{VERSION_APP} — {NOMBRE_VERSION}**"
+        )
+
+        sesiones_completadas = (
+            df["TSS"].dropna().count() if "TSS" in df.columns else 0
+        )
+        total_tss = df["TSS"].sum() if "TSS" in df.columns else 0
+        total_hours = (
+            df["TimeTotalInHours"].sum()
+            if "TimeTotalInHours" in df.columns else 0
+        )
+
+        if genero == "Femenino" and "Menstruación" in fase_menstrual:
+            st.warning(
+                "🔴 **Ajuste fisiológico activo:** fase menstrual detectada. "
+                "Se recomienda modular la carga y priorizar la asimilación."
+            )
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("TSS Histórico Acumulado", f"{total_tss:.1f}")
+        c2.metric("Volumen Total Acumulado", f"{total_hours:.2f} hrs")
+        c3.metric(
+            "Faltan para Carrera",
+            f"{diferencia_semana} semanas",
+            delta=f"Meta: {meta_input}"
+        )
+        c4.metric("Sesiones Registradas", f"{sesiones_completadas}")
+
+        # ====================================================
+        # AUDITORÍA
+        # ====================================================
+
+        st.markdown("---")
+        st.subheader("🚦 Auditoría de la Semana Pasada")
+        st.caption(
+            "Comparación automática entre referencia de entrenamiento y ejecución real."
+        )
+
+        planeacion_modelo = construir_planeacion_catalogo(
+            nivel_atleta,
+            meta_input,
+            objetivo_semana,
+            diferencia_semana
+        )
+        # V3.9 corregida: segunda capa de seguridad contra sesiones heredadas
+        # o asignaciones incorrectas. La estructura semanal siempre tiene prioridad.
+        planeacion_modelo = validar_y_corregir_planeacion_estructura(
+            planeacion_modelo,
+            nivel_atleta,
+            meta_input,
+            objetivo_semana,
+            diferencia_semana
+        )
+
+        # Auditoría rápida: cada sesión debe coincidir con el rol del día.
+        errores_estructura = []
+        for s in planeacion_modelo:
+            rol_esperado = rol_estructural_para_dia(nivel_atleta, s.get("Día"))
+            if rol_esperado and rol_estructural(s) != rol_esperado:
+                errores_estructura.append(
+                    f"{s.get('Día')}: {s.get('ID')} ({rol_estructural(s)}) != {rol_esperado}"
+                )
+        if errores_estructura:
+            st.error("🚨 Inconsistencia estructural detectada: " + " | ".join(errores_estructura))
+        else:
+            st.success("🧱 Estructura semanal validada: ningún Long Run ocupa martes/jueves/sábado y el Long Run queda reservado al domingo según el nivel.")
+
+        # Auditoría V4.0: no basta con que el rol sea correcto; cada día
+        # debe pertenecer exactamente a la estructura del nivel.
+        dias_esperados = [normalizar_dia_es(x["dia"]) for x in ESTRUCTURA_SEMANAL.get(nivel_atleta, [])]
+        dias_generados = [normalizar_dia_es(x.get("Día")) for x in planeacion_modelo]
+        if dias_generados != dias_esperados:
+            st.error(
+                "🚨 Motor estructural V4.0: los espacios generados no coinciden "
+                f"con la estructura de {nivel_atleta}. Esperados: {dias_esperados} | "
+                f"Generados: {dias_generados}"
+            )
+        else:
+            st.success(
+                f"🔒 Motor estructural V4.0 bloqueado: {nivel_atleta} usa exactamente "
+                f"{len(dias_esperados)} espacios definidos por su nivel. El catálogo "
+                "solo puede llenar esos roles."
+            )
+
+        frecuencia_objetivo = frecuencia_objetivo_nivel(nivel_atleta)
+        st.info(
+            f"🧠 Frecuencia objetivo para nivel {nivel_atleta}: "
+            f"**{frecuencia_objetivo} sesiones de corrida/semana**. "
+            f"El Catálogo Maestro propone {len(planeacion_modelo)} sesión(es), "
+            "priorizando Long Run y estímulos estructurales."
+        )
+        st.markdown("#### 🧱 Estructura semanal del atleta")
+        estructura_ui = ESTRUCTURA_SEMANAL.get(nivel_atleta, ESTRUCTURA_SEMANAL["Medio"])
+        for slot in estructura_ui:
+            marca = "🔁 " if slot.get("doble_jornada") else ""
+            st.write(
+                f"• **{slot['dia']}** — {marca}{slot['etiqueta']}"
+            )
+        fuerza_ui = ", ".join(DIAS_FUERZA_POR_NIVEL.get(nivel_atleta, []))
+        st.caption(f"🏋️ Fortalecimiento estructural: {fuerza_ui}. El sábado no se fuerza Fartlek; el Catálogo llena el rol definido por la estructura.")
+
+        tss_teorico_semana = sum(
+            s["TSS Estimado"] for s in planeacion_modelo
+        )
+        horas_teoricas_semana = sum(
+            s["Horas Estimadas"] for s in planeacion_modelo
+        )
+
+        dias_plan = [normalizar_dia_es(s.get("Día")) for s in planeacion_modelo]
+        duplicados_dias = sorted({
+            dia for dia in dias_plan if dias_plan.count(dia) > 1
+        })
+        if duplicados_dias:
+            st.error(
+                "🚨 El plan contiene días duplicados: "
+                + ", ".join(duplicados_dias)
+            )
+        else:
+            st.success(
+                f"✅ Calendario validado: {len(planeacion_modelo)} sesión(es) "
+                "en días distintos."
+            )
+
+        if "WorkoutDay" in df.columns:
+            try:
+                df["WorkoutDay_dt"] = pd.to_datetime(
+                    df["WorkoutDay"], errors="coerce"
+                )
+                max_fecha = df["WorkoutDay_dt"].max()
+                min_fecha_reciente = max_fecha - pd.Timedelta(days=7)
+                df_semana_pasada = df[
+                    df["WorkoutDay_dt"] >= min_fecha_reciente
+                ].copy()
+            except Exception:
+                df_semana_pasada = df.head(7)
+        else:
+            df_semana_pasada = df.head(7)
+
+        tss_real_semana = (
+            df_semana_pasada["TSS"].sum()
+            if "TSS" in df_semana_pasada.columns else 0
+        )
+        horas_real_semana = (
+            df_semana_pasada["TimeTotalInHours"].sum()
+            if "TimeTotalInHours" in df_semana_pasada.columns else 0
+        )
+        sesiones_semana = len(df_semana_pasada)
+
+        diff_horas = horas_real_semana - horas_teoricas_semana
+        diff_tss = tss_real_semana - tss_teorico_semana
+
+        if abs(diff_horas) <= 0.25:
+            semaforo_tiempo = "🟢 **Óptimo**"
+            comentario_tiempo = "El volumen de tiempo estuvo dentro de un rango razonable."
+        elif horas_real_semana < horas_teoricas_semana:
+            semaforo_tiempo = "🟡 **Por debajo de lo esperado**"
+            comentario_tiempo = "El volumen ejecutado quedó por debajo de la referencia."
+        else:
+            semaforo_tiempo = "🔴 **Por encima de lo esperado**"
+            comentario_tiempo = "El volumen ejecutado superó la referencia."
+
+        if abs(diff_tss) <= 12:
+            semaforo_tss = "🟢 **Carga equilibrada**"
+            comentario_tss = "El TSS estuvo dentro del margen de referencia."
+        elif tss_real_semana < tss_teorico_semana:
+            semaforo_tss = "🟡 **Carga inferior**"
+            comentario_tss = "El estrés acumulado quedó por debajo de la referencia."
+        else:
+            semaforo_tss = "🔴 **Carga superior**"
+            comentario_tss = "El estrés acumulado superó la referencia."
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("### ⏱️ Control de Tiempo")
+            st.markdown(f"**Referencia:** {horas_teoricas_semana:.2f} hrs")
+            st.markdown(f"**Ejecutado:** {horas_real_semana:.2f} hrs")
+            st.markdown(f"**Estado:** {semaforo_tiempo}")
+            st.info(comentario_tiempo)
+
+        with col2:
+            st.markdown("### ⚡ Control de TSS")
+            st.markdown(f"**Referencia:** {tss_teorico_semana:.1f}")
+            st.markdown(f"**Ejecutado:** {tss_real_semana:.1f}")
+            st.markdown(f"**Estado:** {semaforo_tss}")
+            st.info(comentario_tss)
+
+        # ====================================================
+        # SISTEMA RECOMIENDA
+        # ====================================================
+
+        st.markdown("---")
+        st.subheader("🧠 El Sistema Recomienda")
+
+        resultado_recomendacion = generar_recomendacion(
+            tss_real_semana,
+            tss_teorico_semana,
+            horas_real_semana,
+            horas_teoricas_semana,
+            sesiones_semana,
+            nivel_atleta,
+            diferencia_semana
+        )
+
+        st.info(resultado_recomendacion["general"])
+
+        st.markdown("#### 🔎 Factores detectados")
+        for recomendacion in resultado_recomendacion["recomendaciones"]:
+            st.write(f"• {recomendacion}")
+
+        if resultado_recomendacion["alertas"]:
+            st.markdown("#### ⚠️ Alertas")
+            for alerta in resultado_recomendacion["alertas"]:
+                st.warning(alerta)
+
+        # ====================================================
+        # FECHAS DE LA PRÓXIMA SEMANA
+        # ====================================================
+
+        st.markdown("---")
+        st.subheader("📅 Semana concreta de planificación")
+
+        # La semana propuesta comienza el lunes siguiente a la fecha actual.
+        # El entrenador puede cambiar el lunes de referencia.
+        lunes_defecto = fecha_lunes_siguiente(hoy)
+        lunes_plan = st.date_input(
+            "Lunes de la semana que vamos a construir",
+            value=lunes_defecto,
+            key=f"lunes_plan_{atleta_seleccionado}"
+        )
+
+        mapa_fechas = fechas_plan_semana(lunes_plan)
+
+        st.caption(
+            f"Semana: {lunes_plan.strftime('%d/%m/%Y')} → "
+            f"{mapa_fechas['Domingo'].strftime('%d/%m/%Y')}"
+        )
+
+        # ====================================================
+        # REVISIÓN DE PROPUESTAS + ENTRENADOR DECIDE
+        # ====================================================
+
+        st.markdown("---")
+        st.subheader("📚 Sesiones propuestas por el Catálogo Maestro")
+        st.caption(
+            "Aquí se revisa cada propuesta individualmente. "
+            "Una modificación o rechazo puede generar una nueva sugerencia. Un rechazo se convierte además en una restricción activa para ese espacio."
+            "La frecuencia semanal objetivo se controla automáticamente. "
+            "V4.0: el día y el rol son estructurales y no pueden cambiar por una sugerencia."
+        )
+
+        decisiones_sesiones = perfil.get("decisiones_sesiones", {})
+
+        plan_final = []
+        sesiones_revisadas = 0
+        sesiones_aprobadas = 0
+        sesiones_pendientes = 0
+
+        for indice, sesion in enumerate(planeacion_modelo):
+            fecha = fecha_sesion(sesion, lunes_plan)
+            rol_esperado = rol_estructural_para_dia(
+                nivel_atleta, nombre_dia_es(fecha)
+            )
+            key_base = clave_espacio(fecha, rol_esperado or rol_estructural(sesion))
+
+            registro = decisiones_sesiones.get(key_base, {})
+            sesion_persistida = registro.get("sesion_actual")
+
+            # V4.0: una decisión persistida solo puede entrar si pertenece al
+            # mismo espacio estructural. Esto elimina el problema histórico de
+            # un Long Run guardado en martes que reaparece aunque el catálogo
+            # ya haya sido corregido.
+            if (
+                isinstance(sesion_persistida, dict)
+                and rol_estructural(sesion_persistida) == rol_esperado
+                and normalizar_dia_es(sesion_persistida.get("Día")) == nombre_dia_es(fecha)
+            ):
+                sesion_actual = preparar_sesion(
+                    sesion_persistida,
+                    nombre_dia_es(fecha),
+                    rol_esperado,
+                    sesion.get("Doble Jornada", False)
+                )
+            else:
+                sesion_actual = preparar_sesion(
+                    sesion,
+                    nombre_dia_es(fecha),
+                    rol_esperado or rol_estructural(sesion),
+                    sesion.get("Doble Jornada", False)
+                )
+                # No heredamos estado/observación de una sesión incompatible.
+                if sesion_persistida:
+                    registro = {}
+
+            estado = registro.get("estado", "Pendiente")
+            observacion_guardada = registro.get("observacion", "")
+            historial_sugerencias = registro.get("historial_sugerencias", [])
+
+            # V3.9: restricciones de la semana derivadas de rechazos previos.
+            restricciones_semana = restricciones_rechazo_semana(
+                decisiones_sesiones,
+                lunes_plan,
+                nivel_atleta
+            )
+
+            dia_actual_es = nombre_dia_es(fecha)
+            restriccion_dia = restricciones_semana.get(
+                dia_actual_es,
+                {}
+            )
+
+            tss_actual = float(sesion_actual.get("TSS", sesion_actual.get("TSS Estimado", 0)))
+            duracion_actual = float(sesion_actual.get("Duración (h)", sesion_actual.get("Horas Estimadas", 0)))
+            categoria_actual = sesion_actual.get("Categoría", sesion_actual.get("Tipo de Sesión", ""))
+            objetivo_actual = sesion_actual.get("Objetivo", "")
+            nivel_actual = sesion_actual.get("Nivel", nivel_atleta)
+            estructura_actual = sesion_actual.get(
+                "Estructura TP",
+                sesion_actual.get("Estructura Detallada para TP", sesion_actual.get("Estructura Breve", ""))
+            )
+
+            titulo_tarjeta = (
+                f"📌 {nombre_dia_es(fecha)} {fecha.strftime('%d/%m/%Y')} — "
+                f"{sesion_actual['ID']} — {sesion_actual['Título']} "
+                f"(TSS {tss_actual:.1f})"
+            )
+
+            with st.expander(titulo_tarjeta, expanded=(indice == 0)):
+                st.write(f"**Categoría:** {categoria_actual}")
+                st.write(f"**Objetivo:** {objetivo_actual}")
+                st.write(f"**Nivel:** {nivel_actual}")
+                if sesion_actual.get("Doble Jornada"):
+                    st.info("🔁 Miércoles: carrera AM + fortalecimiento PM")
+                st.write(
+                    f"**Duración:** {duracion_actual:.2f} h | "
+                    f"**TSS:** {tss_actual:.1f}"
+                )
+
+                st.code(estructura_actual, language="text")
+
+                opciones_decision = [
+                    "Pendiente",
+                    "Aprobar",
+                    "Modificar",
+                    "Rechazar"
+                ]
+
+                decision = st.selectbox(
+                    "👨‍🏫 Decisión para esta sesión",
+                    opciones_decision,
+                    index=(
+                        opciones_decision.index(estado)
+                        if estado in opciones_decision else 0
+                    ),
+                    key=f"decision_sesion_{atleta_seleccionado}_{key_base}"
+                )
+
+                observacion = st.text_area(
+                    "📝 Observación del entrenador",
+                    value=observacion_guardada,
+                    placeholder=(
+                        "Ej.: Necesitamos un poco más de carga, "
+                        "una hora 30 minutos sería insuficiente."
+                    ),
+                    key=f"obs_sesion_{atleta_seleccionado}_{key_base}"
+                )
+
+                c_a, c_b = st.columns(2)
+
+                with c_a:
+                    guardar_sesion = st.button(
+                        "💾 Guardar decisión de esta sesión",
+                        key=f"save_session_{atleta_seleccionado}_{key_base}"
+                    )
+
+                with c_b:
+                    nueva_sugerencia_btn = st.button(
+                        "🔄 Generar nueva sugerencia",
+                        key=f"new_suggestion_{atleta_seleccionado}_{key_base}"
+                    )
+
+                if guardar_sesion:
+                    registro["estado"] = decision
+                    registro["observacion"] = observacion
+                    registro["sesion_actual"] = sesion_actual
+                    registro["fecha"] = fecha.strftime("%Y-%m-%d")
+                    registro["historial_sugerencias"] = historial_sugerencias
+
+                    if decision == "Rechazar":
+                        registro["restriccion_rechazo"] = {
+                            "ID": sesion_actual.get("ID"),
+                            "Categoría": sesion_actual.get(
+                                "Categoría",
+                                sesion_actual.get(
+                                    "Tipo de Sesión", ""
+                                )
+                            ),
+                            "Rol Estructural": rol_estructural(
+                                sesion_actual
+                            ),
+                            "Fecha": fecha.strftime("%Y-%m-%d"),
+                            "Motivo": observacion
+                        }
+                    elif decision == "Aprobar":
+                        registro["decision_final"] = True
+                    else:
+                        registro["decision_final"] = False
+
+                    decisiones_sesiones[key_base] = registro
+                    st.session_state["atletas_db"][atleta_seleccionado][
+                        "decisiones_sesiones"
+                    ] = decisiones_sesiones
+                    guardar_db(st.session_state["atletas_db"])
+
+                    st.success(
+                        f"✅ Decisión '{decision}' guardada para "
+                        f"{fecha.strftime('%d/%m/%Y')}."
+                    )
+                    st.rerun()
+
+                if nueva_sugerencia_btn:
+                    es_rechazo = decision == "Rechazar"
+
+                    # Si se rechaza, la siguiente propuesta debe respetar
+                    # el rol estructural del día y no repetir el rol/categoría
+                    # rechazados. Esto evita, por ejemplo, que un Long Run
+                    # rechazado el martes vuelva a aparecer el martes.
+                    if es_rechazo:
+                        rol_siguiente = (
+                            rol_estructural_para_dia(
+                                nivel_atleta,
+                                nombre_dia_es(fecha)
+                            )
+                            or rol_estructural(sesion_actual)
+                        )
+                        roles_bloqueados = {
+                            rol_estructural(sesion_actual)
+                        }
+                        categorias_bloqueadas = {
+                            sesion_actual.get(
+                                "Categoría",
+                                sesion_actual.get(
+                                    "Tipo de Sesión", ""
+                                )
+                            )
+                        }
+                    else:
+                        rol_siguiente = (
+                            restriccion_dia.get(
+                                "rol_estructural"
+                            )
+                            or rol_estructural(sesion_actual)
+                        )
+                        roles_bloqueados = set(
+                            restriccion_dia.get("roles", set())
+                        )
+                        categorias_bloqueadas = set(
+                            restriccion_dia.get("categorias", set())
+                        )
+
+                    # Solo excluimos las sesiones que pertenecen al historial
+                    # de este mismo espacio y que realmente fueron descartadas.
+                    # La prioridad es tener una alternativa estructural válida.
+                    ids_historial = [
+                        x.get("ID")
+                        for x in historial_sugerencias
+                        if x.get("ID")
+                    ]
+
+                    nueva = buscar_nueva_sugerencia(
+                        sesion_actual=sesion_actual,
+                        nivel=nivel_atleta,
+                        meta=meta_input,
+                        objetivo_semana=objetivo_semana,
+                        semanas_faltantes=diferencia_semana,
+                        feedback=observacion,
+                        ids_excluidos=ids_historial,
+                        dia_objetivo=nombre_dia_es(fecha),
+                        rol_objetivo=rol_siguiente,
+                        roles_excluidos=roles_bloqueados,
+                        categorias_excluidas=categorias_bloqueadas
+                    )
+
+                    if nueva is None:
+                        st.warning(
+                            f"⚠️ No se encontró otra sesión compatible para **{nombre_dia_es(fecha)} / {rol_siguiente}**. "
+                            "La estructura del atleta se mantiene intacta; puedes ampliar el Catálogo Maestro o modificar manualmente."
+                        )
+                    else:
+                        historial_sugerencias.append({
+                            "ID": sesion_actual["ID"],
+                            "Título": sesion_actual["Título"],
+                            "fecha_sugerencia": datetime.now().strftime(
+                                "%Y-%m-%d %H:%M:%S"
+                            ),
+                            "motivo": observacion
+                        })
+
+                        registro["sesion_actual"] = nueva
+                        registro["estado"] = "Pendiente"
+                        registro["observacion"] = observacion
+                        registro["fecha"] = fecha.strftime("%Y-%m-%d")
+                        registro["historial_sugerencias"] = historial_sugerencias
+                        decisiones_sesiones[key_base] = registro
+
+                        st.session_state["atletas_db"][atleta_seleccionado][
+                            "decisiones_sesiones"
+                        ] = decisiones_sesiones
+                        guardar_db(st.session_state["atletas_db"])
+
+                        st.success(
+                            f"🔄 Nueva sugerencia generada: "
+                            f"{nueva['ID']} — {nueva['Título']}"
+                        )
+                        st.rerun()
+
+                if historial_sugerencias:
+                    st.markdown("#### 🔄 Historial de esta propuesta")
+                    hist_df = pd.DataFrame(historial_sugerencias)
+                    st.dataframe(
+                        hist_df,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                if estado == "Aprobar":
+                    st.success("✅ Sesión aprobada por el entrenador.")
+                    sesiones_aprobadas += 1
+                    plan_final.append({
+                        **sesion_actual,
+                        "Fecha": fecha
+                    })
+                elif estado == "Pendiente":
+                    st.info("🟡 Pendiente de decisión del entrenador.")
+                    sesiones_pendientes += 1
+                    plan_final.append({
+                        **sesion_actual,
+                        "Fecha": fecha
+                    })
+                else:
+                    st.warning(
+                        f"📝 Sesión marcada como: **{estado}**. "
+                        "Todavía no forma parte de un plan final aprobado."
+                    )
+
+                sesiones_revisadas += 1
+
+        # ====================================================
+        # ENTRENADOR DECIDE — RESUMEN
+        # ====================================================
+
+        st.markdown("---")
+        st.subheader("👨‍🏫 Entrenador Decide")
+
+        st.markdown(
+            """
+**El sistema propone. El entrenador decide.**
+
+Una modificación o rechazo **no cambia silenciosamente la sesión**:
+genera una nueva propuesta que vuelve a quedar pendiente de aprobación.
+"""
+        )
+
+        st.metric(
+            "Sesiones aprobadas",
+            f"{sesiones_aprobadas}/{sesiones_revisadas}"
+        )
+
+        if sesiones_pendientes:
+            st.info(
+                f"🟡 Hay {sesiones_pendientes} sesión(es) pendientes "
+                "de decisión."
+            )
+
+        # Decisión general histórica, conservada de V3.2.
+        decisiones_disponibles = [
+            "Mantener planificación",
+            "Aumentar carga",
+            "Reducir carga",
+            "Recuperación / descarga",
+            "Modificar sesión específica",
+            "Otra decisión"
+        ]
+
+        decision_general = st.radio(
+            "Decisión general de la semana:",
+            decisiones_disponibles,
+            key=f"decision_general_{atleta_seleccionado}"
+        )
+
+        comentario_general = st.text_area(
+            "📝 Justificación general del entrenador",
+            placeholder=(
+                "Observaciones sobre la semana, fatiga, cumplimiento, "
+                "contexto externo o criterio de planificación."
+            ),
+            key=f"comentario_general_{atleta_seleccionado}"
+        )
+
+        if st.button(
+            "💾 Guardar decisión general del entrenador",
+            key=f"guardar_decision_general_{atleta_seleccionado}"
+        ):
+            fecha_registro = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            nueva_decision = {
+                "fecha": fecha_registro,
+                "version_app": VERSION_APP,
+                "semana_plan": (
+                    f"{lunes_plan.strftime('%Y-%m-%d')} → "
+                    f"{mapa_fechas['Domingo'].strftime('%Y-%m-%d')}"
+                ),
+                "tss_planificado": float(tss_teorico_semana),
+                "tss_ejecutado": float(tss_real_semana),
+                "horas_planificadas": float(horas_teoricas_semana),
+                "horas_ejecutadas": float(horas_real_semana),
+                "recomendacion_sistema": resultado_recomendacion[
+                    "decision_sugerida"
+                ],
+                "decision_entrenador": decision_general,
+                "comentario_entrenador": comentario_general,
+                "sesiones_catalogo_propuestas": [
+                    s["ID"] for s in planeacion_modelo
+                ],
+                "sesiones_aprobadas": [
+                    s["ID"] for s in plan_final
+                    if decisiones_sesiones.get(
+                        clave_sesion(s["Fecha"], s["ID"]), {}
+                    ).get("estado") == "Aprobar"
+                ]
+            }
+
+            decisiones = perfil.get("decisiones_entrenador", [])
+            decisiones.append(nueva_decision)
+
+            st.session_state["atletas_db"][atleta_seleccionado][
+                "decisiones_entrenador"
+            ] = decisiones
+
+            guardar_db(st.session_state["atletas_db"])
+
+            st.success("✅ Decisión general guardada correctamente.")
+
+        # ====================================================
+        # PLANEACIÓN FINAL / SUGERIDA
+        # ====================================================
+
+        st.markdown("---")
+        st.subheader("📅 Planeación de la Próxima Semana")
+
+        st.caption(
+            f"Atleta: {atleta_seleccionado} | "
+            f"Nivel: {nivel_atleta} | Meta: {meta_input} | "
+            f"{diferencia_semana} semanas restantes"
+        )
+
+        if plan_final:
+            plan_final = sorted(plan_final, key=lambda s: s["Fecha"])
+            tabla_plan = []
+
+            for s in plan_final:
+                estado_s = decisiones_sesiones.get(
+                    clave_sesion(s["Fecha"], s["ID"]), {}
+                ).get("estado", "Pendiente")
+
+                tabla_plan.append({
+                    "Fecha": s["Fecha"].strftime("%d/%m/%Y"),
+                    "Día": nombre_dia_es(s["Fecha"]),
+                    "ID": s["ID"],
+                    "Sesión": s["Título"],
+                    "Categoría": s["Categoría"],
+                    "Duración (h)": s["Duración (h)"],
+                    "TSS": s["TSS"],
+                    "Estado entrenador": estado_s
+                })
+
+            st.dataframe(
+                pd.DataFrame(tabla_plan),
+                use_container_width=True,
+                hide_index=True
+            )
+
+            if sesiones_pendientes:
+                st.warning(
+                    "⚠️ Esta planificación todavía contiene sesiones "
+                    "pendientes. No debe interpretarse como plan final aprobado."
+                )
+            elif sesiones_aprobadas == sesiones_revisadas:
+                st.success(
+                    "✅ Todas las sesiones de esta semana fueron aprobadas "
+                    "por el entrenador."
+                )
+
+        # ====================================================
+        # HISTORIAL DE DECISIONES
+        # ====================================================
+
+        decisiones_historial = perfil.get("decisiones_entrenador", [])
+
+        if decisiones_historial:
+            st.markdown("---")
+            st.subheader("📚 Historial de Decisiones del Entrenador")
+
+            historial_df = pd.DataFrame(decisiones_historial)
+            columnas_historial = [
+                "fecha", "version_app", "semana_plan",
+                "tss_planificado", "tss_ejecutado",
+                "horas_planificadas", "horas_ejecutadas",
+                "recomendacion_sistema", "decision_entrenador",
+                "comentario_entrenador", "sesiones_catalogo_propuestas",
+                "sesiones_aprobadas"
+            ]
+
+            columnas_disponibles = [
+                c for c in columnas_historial if c in historial_df.columns
+            ]
+
+            st.dataframe(
+                historial_df[columnas_disponibles],
+                use_container_width=True,
+                hide_index=True
+            )
+
+        # ====================================================
+        # HISTORIAL COMPLETO
+        # ====================================================
+
+        st.markdown("---")
+        st.subheader(
+            f"📋 Historial Completo de Sesiones Ejecutadas: "
+            f"{atleta_seleccionado}"
+        )
+
+        if perfil.get("archivos_cargados"):
+            st.caption(
+                "Archivos integrados: " +
+                ", ".join(perfil["archivos_cargados"])
+            )
+
+        display_cols = [
+            "WorkoutDay",
+            "Title",
+            "WorkoutType",
+            "TimeTotalInHours",
+            "HeartRateAverage",
+            "TSS"
+        ]
+
+        available_cols = [c for c in display_cols if c in df.columns]
+
+        if "WorkoutDay" in df.columns:
+            try:
+                df["WorkoutDay_dt"] = pd.to_datetime(
+                    df["WorkoutDay"], errors="coerce"
+                )
+                df = (
+                    df.sort_values(
+                        by="WorkoutDay_dt",
+                        ascending=False
+                    )
+                    .drop(columns=["WorkoutDay_dt"])
+                )
+            except Exception:
+                pass
+
+        if available_cols:
+            st.dataframe(
+                df[available_cols],
+                use_container_width=True,
+                hide_index=True
+            )
+
+        # ====================================================
+        # TEMPORADA
+        # ====================================================
+
+        st.markdown("---")
+        st.subheader("🎯 Planificación Estratégica según la Temporada")
+
+        if diferencia_semana > 8:
+            st.info(
+                f"🟢 **Fase Base / Desarrollo ({diferencia_semana} semanas):** "
+                "Acumulación de volumen aeróbico estable."
+            )
+        elif diferencia_semana >= 3:
+            st.warning(
+                f"🟡 **Fase Específica ({diferencia_semana} semanas):** "
+                f"Elevar especificidad hacia {meta_input}."
+            )
+        else:
+            st.error(
+                f"🔴 **Tapering / Descarga ({diferencia_semana} semanas):** "
+                "Reducir volumen y priorizar asimilación."
+            )
+
+    else:
+        st.info(
+            f"👈 Sube el primer archivo CSV semanal en la barra lateral "
+            f"para **{atleta_seleccionado}** y comenzar a construir su historial."
+        )
+
+# ============================================================
+# PIE DE PÁGINA
+# ============================================================
+
+st.markdown("---")
+st.caption(
+    f"Qi Team | {VERSION_APP} — {NOMBRE_VERSION} | "
+    "🧠 Sistema recomienda → 📚 Catálogo Maestro → "
+    "👨‍🏫 Entrenador decide → 🔄 Nueva sugerencia → 💾 Registro"
+)
