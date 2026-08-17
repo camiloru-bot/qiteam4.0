@@ -1,7 +1,7 @@
 import streamlit as st
 
 from historico_atleta import render_historico
-from evolucion_atleta import render_evolucion
+from evolucion_diagnostico import render_evolucion
 
 st.set_page_config(page_title="Qi Team V4.1", page_icon="🏃‍♂️", layout="wide")
 
