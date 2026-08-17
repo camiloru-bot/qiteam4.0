@@ -4,12 +4,13 @@ import pandas as pd
 import streamlit as st
 
 DB_FILE = "atletas_db.json"
+VERSION_EVOLUCION = "Evolución v1.3 — Ventanas visibles"
 
 VENTANAS = {
     "1 semana": 1,
     "1 mes": 4,
     "3 meses": 12,
-    "6 meses": 26,
+    "6 meses": 24,
     "12 meses": 52,
     "Histórico completo": None,
 }
@@ -87,14 +88,12 @@ def comparar_bloques(w, semanas):
 def diagnostico(w, semanas):
     if len(w) < 4:
         return "🔵 Datos insuficientes", "Se necesitan al menos cuatro semanas para interpretar una tendencia reciente.", []
-
     n = 4 if semanas is None else min(semanas, len(w))
     reciente = w.tail(n)
     anterior_n = min(n, len(w) - n)
     comp = comparar_bloques(w, n) if anterior_n >= n else None
     factores = []
     riesgo = 0
-
     if comp:
         if comp["tss"] is not None and comp["tss"] > 25:
             riesgo += 2; factores.append(f"TSS: +{comp['tss']:.0f}% frente al bloque anterior.")
@@ -108,11 +107,9 @@ def diagnostico(w, semanas):
             riesgo += 1; factores.append(f"Distancia: +{comp['distancia']:.0f}% frente al bloque anterior.")
         if comp["tss_hora"] is not None and comp["tss_hora"] > 15:
             riesgo += 1; factores.append(f"TSS/hora: +{comp['tss_hora']:.0f}% frente al bloque anterior.")
-
     activas = int((reciente.sesiones > 0).sum())
     if activas < max(1, n * 0.5):
         factores.append(f"Continuidad baja: {activas} de {n} semanas activas.")
-
     if riesgo >= 4:
         return "🟠 Atención — aumento de carga", "La ventana seleccionada presenta varias señales de aumento. Revisar contexto antes de progresar.", factores
     if riesgo >= 2:
@@ -126,7 +123,7 @@ def diagnostico(w, semanas):
 
 def render_evolucion():
     st.title("📈 Qi Team — Evolución y Diagnóstico del Atleta")
-    st.caption("Analiza el estado actual desde distintas ventanas temporales antes de tomar decisiones de entrenamiento.")
+    st.caption(f"{VERSION_EVOLUCION} · Elige una ventana y todos los indicadores se recalculan sobre ese período.")
 
     db = cargar_db()
     if not db:
@@ -141,13 +138,23 @@ def render_evolucion():
 
     w = construir_semanal(df)
 
-    st.markdown("### 🧭 Ventana de análisis")
-    ventana = st.radio("Selecciona el período", list(VENTANAS.keys()), horizontal=True, label_visibility="collapsed")
-    semanas = VENTANAS[ventana]
+    st.markdown("## 🗓️ Ventana de evolución")
+    st.caption("Selecciona cuánto historial quieres analizar:")
+    with st.container(border=True):
+        ventana = st.radio(
+            "Período de análisis",
+            list(VENTANAS.keys()),
+            horizontal=True,
+            key="ventana_evolucion_v13",
+            label_visibility="visible",
+        )
+        semanas = VENTANAS[ventana]
+        st.success(f"Ventana seleccionada: **{ventana}**")
+
     vista = w if semanas is None else w.tail(min(semanas, len(w)))
     actual = w.iloc[-1]
 
-    st.markdown(f"### 🩺 Diagnóstico — {ventana}")
+    st.markdown(f"## 🩺 Diagnóstico de estado — {ventana}")
     estado, resumen, factores = diagnostico(w, semanas)
     st.subheader(estado)
     st.write(resumen)
@@ -216,4 +223,4 @@ def render_evolucion():
         cols = [c for c in ["fecha", "titulo", "tipo", "duracion", "distancia", "tss", "fc_media", "fuente"] if c in vista_act.columns]
         st.dataframe(vista_act[cols].sort_values("fecha", ascending=False).head(500), use_container_width=True, hide_index=True)
 
-    st.caption("El diagnóstico es descriptivo y sirve como apoyo al entrenador. No sustituye la valoración de recuperación, dolor, sueño, estrés u otros factores no presentes en los datos.")
+    st.caption(f"Qi Team V4.1 · {VERSION_EVOLUCION} · Diagnóstico descriptivo para apoyo al entrenador.")
