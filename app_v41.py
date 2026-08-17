@@ -1,3 +1,17 @@
-from historico_atleta import render_historico
+import streamlit as st
 
-render_historico()
+from historico_atleta import render_historico
+from evolucion_atleta import render_evolucion
+
+st.set_page_config(page_title="Qi Team V4.1", page_icon="🏃‍♂️", layout="wide")
+
+st.sidebar.title("🏃‍♂️ Qi Team V4.1")
+modulo = st.sidebar.radio(
+    "Módulo",
+    ["📥 Histórico del Atleta", "📈 Evolución y Estado"],
+)
+
+if modulo == "📥 Histórico del Atleta":
+    render_historico()
+else:
+    render_evolucion()
