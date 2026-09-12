@@ -7,6 +7,7 @@ Streamlit. La interfaz puede consumir estas funciones como servicio de dominio.
 from datetime import date
 
 from data.catalogo import CATALOGO_MAESTRO, fase_por_semanas, objetivos_por_foco
+from planning.recommendation import construir_contexto_decision, generar_recomendacion
 from domain.structure import (
     normalizar_dia_es,
     preparar_sesion,
