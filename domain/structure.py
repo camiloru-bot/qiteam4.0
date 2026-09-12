@@ -6,6 +6,12 @@ mantiene las reglas de V4.0 sin alterar su comportamiento.
 
 from datetime import datetime, timedelta
 
+ORDEN_NIVEL = {"Principiante": 1, "Medio": 2, "Experto": 3}
+
+
+def nivel_num(nivel):
+    return ORDEN_NIVEL.get(nivel, 2)
+
 FRECUENCIA_OBJETIVO_POR_NIVEL = {
     "Principiante": 3,
     "Medio": 4,
