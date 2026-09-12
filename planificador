@@ -414,7 +414,7 @@ if modo == "🏃‍♂️ Biblioteca de Corredores":
 # CATÁLOGO
 # ============================================================
 
-elif modo == "📚 Catálogo Maestro V3.5":
+elif modo == "📚 Catálogo Maestro V4.0":
     st.subheader("📚 CATÁLOGO MAESTRO — V4.0")
 
     st.success(
