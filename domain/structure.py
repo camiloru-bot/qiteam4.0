@@ -6,6 +6,8 @@ mantiene las reglas de V4.0 sin alterar su comportamiento.
 
 from datetime import datetime, timedelta
 
+from data.catalogo import CATALOGO_MAESTRO, fase_por_semanas, objetivos_por_foco
+
 ORDEN_NIVEL = {"Principiante": 1, "Medio": 2, "Experto": 3}
 
 
