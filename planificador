@@ -23,6 +23,12 @@ from planning.planner import (
     clave_sesion,
 )
 from domain.structure import (
+    preparar_sesion,
+    restricciones_rechazo_semana,
+    rol_estructural,
+    rol_estructural_para_dia,
+    construir_planeacion_catalogo,
+    validar_y_corregir_planeacion_estructura,
     DIAS_CATEGORIA,
     DIAS_ES,
     DIAS_ES_NORMALIZADOS,
