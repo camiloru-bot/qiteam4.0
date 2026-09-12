@@ -7,7 +7,7 @@ domain.structure.
 
 import pandas as pd
 
-from domain.structure import nivel_num
+ORDEN_NIVEL = {"Principiante": 1, "Medio": 2, "Experto": 3}
 
 CATALOGO_MAESTRO = [
     {
